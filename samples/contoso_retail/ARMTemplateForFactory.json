@@ -1,0 +1,1043 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "factoryName": {
+      "type": "string",
+      "defaultValue": "adf-contoso-retail-prod"
+    }
+  },
+  "variables": {
+    "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+  },
+  "resources": [
+    {
+      "name": "[concat(parameters('factoryName'), '/ir_selfhosted')]",
+      "type": "Microsoft.DataFactory/factories/integrationRuntimes",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "SelfHosted",
+        "description": "On-prem gateway host"
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ir_azure_ssis')]",
+      "type": "Microsoft.DataFactory/factories/integrationRuntimes",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "Managed",
+        "typeProperties": {
+          "computeProperties": {
+            "location": "West Europe",
+            "nodeSize": "Standard_D4_v3",
+            "numberOfNodes": 1
+          },
+          "ssisProperties": {
+            "edition": "Standard",
+            "licenseType": "LicenseIncluded"
+          }
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ls_keyvault')]",
+      "type": "Microsoft.DataFactory/factories/linkedServices",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "AzureKeyVault",
+        "typeProperties": {
+          "baseUrl": "https://kv-contoso-data.vault.azure.net/"
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ls_azure_sql_control')]",
+      "type": "Microsoft.DataFactory/factories/linkedServices",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "AzureSqlDatabase",
+        "typeProperties": {
+          "connectionString": "Server=tcp:sql-contoso.database.windows.net;Database=etl_control;",
+          "password": {
+            "type": "AzureKeyVaultSecret",
+            "store": {
+              "referenceName": "ls_keyvault",
+              "type": "LinkedServiceReference"
+            },
+            "secretName": "sql-control-password"
+          }
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ls_onprem_erp')]",
+      "type": "Microsoft.DataFactory/factories/linkedServices",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "SqlServer",
+        "connectVia": {
+          "referenceName": "ir_selfhosted",
+          "type": "IntegrationRuntimeReference"
+        },
+        "typeProperties": {
+          "connectionString": "Server=ERP-SQL01;Database=ERP;Integrated Security=False;",
+          "userName": "etl_reader",
+          "password": {
+            "type": "AzureKeyVaultSecret",
+            "store": {
+              "referenceName": "ls_keyvault",
+              "type": "LinkedServiceReference"
+            },
+            "secretName": "erp-sql-password"
+          }
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ls_adls_lake')]",
+      "type": "Microsoft.DataFactory/factories/linkedServices",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "AzureBlobFS",
+        "typeProperties": {
+          "url": "https://stcontosolake.dfs.core.windows.net/"
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ls_rest_crm')]",
+      "type": "Microsoft.DataFactory/factories/linkedServices",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "RestService",
+        "typeProperties": {
+          "url": "https://api.crm.contoso.com/v2/",
+          "authenticationType": "Anonymous"
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ls_databricks')]",
+      "type": "Microsoft.DataFactory/factories/linkedServices",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "AzureDatabricks",
+        "typeProperties": {
+          "domain": "https://adb-1234567890.12.azuredatabricks.net",
+          "existingClusterId": "0101-120000-abcd123",
+          "accessToken": {
+            "type": "AzureKeyVaultSecret",
+            "store": {
+              "referenceName": "ls_keyvault",
+              "type": "LinkedServiceReference"
+            },
+            "secretName": "databricks-pat"
+          }
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ds_sql_control_table')]",
+      "type": "Microsoft.DataFactory/factories/datasets",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "AzureSqlTable",
+        "linkedServiceName": {
+          "referenceName": "ls_azure_sql_control",
+          "type": "LinkedServiceReference"
+        },
+        "typeProperties": {
+          "schema": "etl",
+          "table": "load_control"
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ds_erp_table')]",
+      "type": "Microsoft.DataFactory/factories/datasets",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "SqlServerTable",
+        "linkedServiceName": {
+          "referenceName": "ls_onprem_erp",
+          "type": "LinkedServiceReference"
+        },
+        "parameters": {
+          "schema": {
+            "type": "string",
+            "defaultValue": "dbo"
+          },
+          "table": {
+            "type": "string"
+          }
+        },
+        "typeProperties": {
+          "schema": {
+            "value": "@dataset().schema",
+            "type": "Expression"
+          },
+          "table": {
+            "value": "@dataset().table",
+            "type": "Expression"
+          }
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ds_lake_parquet')]",
+      "type": "Microsoft.DataFactory/factories/datasets",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "Parquet",
+        "linkedServiceName": {
+          "referenceName": "ls_adls_lake",
+          "type": "LinkedServiceReference"
+        },
+        "parameters": {
+          "folder": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          }
+        },
+        "typeProperties": {
+          "location": {
+            "type": "AzureBlobFSLocation",
+            "fileSystem": "bronze",
+            "folderPath": {
+              "value": "erp/@{dataset().folder}",
+              "type": "Expression"
+            },
+            "fileName": {
+              "value": "@dataset().file",
+              "type": "Expression"
+            }
+          },
+          "compressionCodec": "snappy"
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ds_crm_rest')]",
+      "type": "Microsoft.DataFactory/factories/datasets",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "RestResource",
+        "linkedServiceName": {
+          "referenceName": "ls_rest_crm",
+          "type": "LinkedServiceReference"
+        },
+        "parameters": {
+          "entity": {
+            "type": "string",
+            "defaultValue": "customers"
+          }
+        },
+        "typeProperties": {
+          "relativeUrl": {
+            "value": "@{dataset().entity}?pageSize=500",
+            "type": "Expression"
+          }
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ds_lake_json')]",
+      "type": "Microsoft.DataFactory/factories/datasets",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "Json",
+        "linkedServiceName": {
+          "referenceName": "ls_adls_lake",
+          "type": "LinkedServiceReference"
+        },
+        "parameters": {
+          "entity": {
+            "type": "string"
+          }
+        },
+        "typeProperties": {
+          "location": {
+            "type": "AzureBlobFSLocation",
+            "fileSystem": "bronze",
+            "folderPath": {
+              "value": "@concat('crm/', dataset().entity, '/', formatDateTime(utcnow(), 'yyyy/MM/dd'))",
+              "type": "Expression"
+            }
+          }
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/ds_lake_binary')]",
+      "type": "Microsoft.DataFactory/factories/datasets",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "Binary",
+        "linkedServiceName": {
+          "referenceName": "ls_adls_lake",
+          "type": "LinkedServiceReference"
+        },
+        "parameters": {
+          "container": {
+            "type": "string",
+            "defaultValue": "landing"
+          },
+          "folder": {
+            "type": "string"
+          }
+        },
+        "typeProperties": {
+          "location": {
+            "type": "AzureBlobFSLocation",
+            "fileSystem": {
+              "value": "@dataset().container",
+              "type": "Expression"
+            },
+            "folderPath": {
+              "value": "@dataset().folder",
+              "type": "Expression"
+            }
+          }
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/df_customer_scd2')]",
+      "type": "Microsoft.DataFactory/factories/dataflows",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "MappingDataFlow",
+        "typeProperties": {
+          "sources": [
+            {
+              "name": "srcCustomers"
+            }
+          ],
+          "sinks": [
+            {
+              "name": "sinkDimCustomer"
+            }
+          ],
+          "transformations": [
+            {
+              "name": "derivedHash"
+            },
+            {
+              "name": "lookupCurrent"
+            },
+            {
+              "name": "alterRows"
+            }
+          ],
+          "scriptLines": [
+            "source(...) ~> srcCustomers",
+            "..."
+          ]
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/pl_metadata_driven_load')]",
+      "type": "Microsoft.DataFactory/factories/pipelines",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "description": "Reads etl.load_control and copies every active ERP table to the bronze layer.",
+        "parameters": {
+          "source_system": {
+            "type": "string",
+            "defaultValue": "ERP"
+          }
+        },
+        "activities": [
+          {
+            "name": "Get tables to load",
+            "type": "Lookup",
+            "dependsOn": [],
+            "typeProperties": {
+              "source": {
+                "type": "AzureSqlSource",
+                "sqlReaderQuery": {
+                  "value": "SELECT * FROM etl.load_control WHERE is_active = 1 AND source_system = '@{pipeline().parameters.source_system}'",
+                  "type": "Expression"
+                }
+              },
+              "dataset": {
+                "referenceName": "ds_sql_control_table",
+                "type": "DatasetReference"
+              },
+              "firstRowOnly": false
+            }
+          },
+          {
+            "name": "For each table",
+            "type": "ForEach",
+            "dependsOn": [
+              {
+                "activity": "Get tables to load",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              }
+            ],
+            "typeProperties": {
+              "items": {
+                "value": "@activity('Get tables to load').output.value",
+                "type": "Expression"
+              },
+              "isSequential": false,
+              "batchCount": 8,
+              "activities": [
+                {
+                  "name": "Copy ERP table to bronze",
+                  "type": "Copy",
+                  "dependsOn": [],
+                  "policy": {
+                    "timeout": "0.02:00:00",
+                    "retry": 2
+                  },
+                  "typeProperties": {
+                    "source": {
+                      "type": "SqlServerSource",
+                      "sqlReaderQuery": {
+                        "value": "SELECT * FROM @{item().schema_name}.@{item().table_name} WHERE @{item().watermark_column} > '@{item().last_watermark}'",
+                        "type": "Expression"
+                      }
+                    },
+                    "sink": {
+                      "type": "ParquetSink"
+                    }
+                  },
+                  "inputs": [
+                    {
+                      "referenceName": "ds_erp_table",
+                      "type": "DatasetReference",
+                      "parameters": {
+                        "schema": {
+                          "value": "@item().schema_name",
+                          "type": "Expression"
+                        },
+                        "table": {
+                          "value": "@item().table_name",
+                          "type": "Expression"
+                        }
+                      }
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "referenceName": "ds_lake_parquet",
+                      "type": "DatasetReference",
+                      "parameters": {
+                        "folder": {
+                          "value": "@item().table_name",
+                          "type": "Expression"
+                        },
+                        "file": {
+                          "value": "@concat(item().table_name, '_', pipeline().RunId, '.parquet')",
+                          "type": "Expression"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "Update watermark",
+                  "type": "SqlServerStoredProcedure",
+                  "dependsOn": [
+                    {
+                      "activity": "Copy ERP table to bronze",
+                      "dependencyConditions": [
+                        "Succeeded"
+                      ]
+                    }
+                  ],
+                  "linkedServiceName": {
+                    "referenceName": "ls_azure_sql_control",
+                    "type": "LinkedServiceReference"
+                  },
+                  "typeProperties": {
+                    "storedProcedureName": "etl.usp_update_watermark",
+                    "storedProcedureParameters": {
+                      "table_name": {
+                        "value": {
+                          "value": "@item().table_name",
+                          "type": "Expression"
+                        },
+                        "type": "String"
+                      },
+                      "rows_copied": {
+                        "value": {
+                          "value": "@activity('Copy ERP table to bronze').output.rowsCopied",
+                          "type": "Expression"
+                        },
+                        "type": "Int64"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/pl_rest_api_ingest')]",
+      "type": "Microsoft.DataFactory/factories/pipelines",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "description": "Pulls CRM entities from a paginated REST API into bronze JSON.",
+        "parameters": {
+          "entities": {
+            "type": "array",
+            "defaultValue": [
+              "customers",
+              "contacts",
+              "opportunities"
+            ]
+          },
+          "windowStart": {
+            "type": "string"
+          },
+          "windowEnd": {
+            "type": "string"
+          }
+        },
+        "activities": [
+          {
+            "name": "For each entity",
+            "type": "ForEach",
+            "dependsOn": [],
+            "typeProperties": {
+              "items": {
+                "value": "@pipeline().parameters.entities",
+                "type": "Expression"
+              },
+              "activities": [
+                {
+                  "name": "Copy CRM entity",
+                  "type": "Copy",
+                  "dependsOn": [],
+                  "typeProperties": {
+                    "source": {
+                      "type": "RestSource",
+                      "requestMethod": "GET",
+                      "paginationRules": {
+                        "AbsoluteUrl": "$.nextLink"
+                      },
+                      "requestInterval": "00.00:00:00.100"
+                    },
+                    "sink": {
+                      "type": "JsonSink"
+                    }
+                  },
+                  "inputs": [
+                    {
+                      "referenceName": "ds_crm_rest",
+                      "type": "DatasetReference",
+                      "parameters": {
+                        "entity": {
+                          "value": "@item()",
+                          "type": "Expression"
+                        }
+                      }
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "referenceName": "ds_lake_json",
+                      "type": "DatasetReference",
+                      "parameters": {
+                        "entity": {
+                          "value": "@item()",
+                          "type": "Expression"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/pl_databricks_transform')]",
+      "type": "Microsoft.DataFactory/factories/pipelines",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "description": "Bronze -> silver -> gold notebooks on Azure Databricks.",
+        "activities": [
+          {
+            "name": "Silver conform",
+            "type": "DatabricksNotebook",
+            "dependsOn": [],
+            "linkedServiceName": {
+              "referenceName": "ls_databricks",
+              "type": "LinkedServiceReference"
+            },
+            "typeProperties": {
+              "notebookPath": "/Repos/data/transform/silver_conform",
+              "baseParameters": {
+                "run_date": {
+                  "value": "@formatDateTime(utcnow(), 'yyyy-MM-dd')",
+                  "type": "Expression"
+                }
+              }
+            }
+          },
+          {
+            "name": "Gold aggregates",
+            "type": "DatabricksNotebook",
+            "dependsOn": [
+              {
+                "activity": "Silver conform",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              }
+            ],
+            "linkedServiceName": {
+              "referenceName": "ls_databricks",
+              "type": "LinkedServiceReference"
+            },
+            "typeProperties": {
+              "notebookPath": "/Repos/data/transform/gold_aggregates"
+            }
+          },
+          {
+            "name": "Customer dimension",
+            "type": "ExecutePipeline",
+            "dependsOn": [
+              {
+                "activity": "Silver conform",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              }
+            ],
+            "typeProperties": {
+              "pipeline": {
+                "referenceName": "pl_customer_dimension",
+                "type": "PipelineReference"
+              },
+              "waitOnCompletion": true
+            }
+          }
+        ]
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/pl_customer_dimension')]",
+      "type": "Microsoft.DataFactory/factories/pipelines",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "description": "Builds dim_customer (SCD2) with a mapping data flow.",
+        "activities": [
+          {
+            "name": "Run customer SCD2 flow",
+            "type": "ExecuteDataFlow",
+            "dependsOn": [],
+            "typeProperties": {
+              "dataflow": {
+                "referenceName": "df_customer_scd2",
+                "type": "DataFlowReference"
+              },
+              "compute": {
+                "coreCount": 8,
+                "computeType": "General"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/pl_legacy_finance_ssis')]",
+      "type": "Microsoft.DataFactory/factories/pipelines",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "description": "Runs the legacy finance SSIS package on the Azure-SSIS IR.",
+        "activities": [
+          {
+            "name": "Run GL extract package",
+            "type": "ExecuteSSISPackage",
+            "dependsOn": [],
+            "typeProperties": {
+              "packageLocation": {
+                "packagePath": "Finance/GL/GL_Extract.dtsx",
+                "type": "SSISDB"
+              },
+              "connectVia": {
+                "referenceName": "ir_azure_ssis",
+                "type": "IntegrationRuntimeReference"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/pl_archive_landing_files')]",
+      "type": "Microsoft.DataFactory/factories/pipelines",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "description": "Moves processed landing files to the archive container.",
+        "parameters": {
+          "folder": {
+            "type": "string",
+            "defaultValue": "erp/incoming"
+          }
+        },
+        "activities": [
+          {
+            "name": "List landing files",
+            "type": "GetMetadata",
+            "dependsOn": [],
+            "typeProperties": {
+              "dataset": {
+                "referenceName": "ds_lake_binary",
+                "type": "DatasetReference",
+                "parameters": {
+                  "folder": {
+                    "value": "@pipeline().parameters.folder",
+                    "type": "Expression"
+                  }
+                }
+              },
+              "fieldList": [
+                "childItems"
+              ]
+            }
+          },
+          {
+            "name": "Any files?",
+            "type": "IfCondition",
+            "dependsOn": [
+              {
+                "activity": "List landing files",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              }
+            ],
+            "typeProperties": {
+              "expression": {
+                "value": "@greater(length(activity('List landing files').output.childItems), 0)",
+                "type": "Expression"
+              },
+              "ifTrueActivities": [
+                {
+                  "name": "Copy to archive",
+                  "type": "Copy",
+                  "dependsOn": [],
+                  "typeProperties": {
+                    "source": {
+                      "type": "BinarySource",
+                      "storeSettings": {
+                        "type": "AzureBlobFSReadSettings",
+                        "recursive": true
+                      }
+                    },
+                    "sink": {
+                      "type": "BinarySink"
+                    }
+                  },
+                  "inputs": [
+                    {
+                      "referenceName": "ds_lake_binary",
+                      "type": "DatasetReference",
+                      "parameters": {
+                        "folder": {
+                          "value": "@pipeline().parameters.folder",
+                          "type": "Expression"
+                        }
+                      }
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "referenceName": "ds_lake_binary",
+                      "type": "DatasetReference",
+                      "parameters": {
+                        "container": "archive",
+                        "folder": {
+                          "value": "@concat(pipeline().parameters.folder, '/', formatDateTime(utcnow(), 'yyyyMMdd'))",
+                          "type": "Expression"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "Delete landed files",
+                  "type": "Delete",
+                  "dependsOn": [
+                    {
+                      "activity": "Copy to archive",
+                      "dependencyConditions": [
+                        "Succeeded"
+                      ]
+                    }
+                  ],
+                  "typeProperties": {
+                    "dataset": {
+                      "referenceName": "ds_lake_binary",
+                      "type": "DatasetReference",
+                      "parameters": {
+                        "folder": {
+                          "value": "@pipeline().parameters.folder",
+                          "type": "Expression"
+                        }
+                      }
+                    },
+                    "enableLogging": false
+                  }
+                }
+              ],
+              "ifFalseActivities": [
+                {
+                  "name": "Nothing to archive",
+                  "type": "Wait",
+                  "dependsOn": [],
+                  "typeProperties": {
+                    "waitTimeInSeconds": 1
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/pl_master_daily')]",
+      "type": "Microsoft.DataFactory/factories/pipelines",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "description": "Nightly orchestration: ingest, transform, then build dimensions.",
+        "variables": {
+          "run_status": {
+            "type": "String"
+          }
+        },
+        "activities": [
+          {
+            "name": "Ingest ERP",
+            "type": "ExecutePipeline",
+            "dependsOn": [],
+            "typeProperties": {
+              "pipeline": {
+                "referenceName": "pl_metadata_driven_load",
+                "type": "PipelineReference"
+              },
+              "waitOnCompletion": true,
+              "parameters": {
+                "source_system": "ERP"
+              }
+            }
+          },
+          {
+            "name": "Ingest CRM",
+            "type": "ExecutePipeline",
+            "dependsOn": [],
+            "typeProperties": {
+              "pipeline": {
+                "referenceName": "pl_rest_api_ingest",
+                "type": "PipelineReference"
+              },
+              "waitOnCompletion": true
+            }
+          },
+          {
+            "name": "Transform",
+            "type": "ExecutePipeline",
+            "dependsOn": [
+              {
+                "activity": "Ingest ERP",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              },
+              {
+                "activity": "Ingest CRM",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              }
+            ],
+            "typeProperties": {
+              "pipeline": {
+                "referenceName": "pl_databricks_transform",
+                "type": "PipelineReference"
+              },
+              "waitOnCompletion": true
+            }
+          },
+          {
+            "name": "Archive files",
+            "type": "ExecutePipeline",
+            "dependsOn": [
+              {
+                "activity": "Ingest ERP",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              }
+            ],
+            "typeProperties": {
+              "pipeline": {
+                "referenceName": "pl_archive_landing_files",
+                "type": "PipelineReference"
+              },
+              "waitOnCompletion": false
+            }
+          },
+          {
+            "name": "Mark success",
+            "type": "SetVariable",
+            "dependsOn": [
+              {
+                "activity": "Transform",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              }
+            ],
+            "typeProperties": {
+              "variableName": "run_status",
+              "value": "Succeeded"
+            }
+          },
+          {
+            "name": "Notify Teams",
+            "type": "WebActivity",
+            "dependsOn": [
+              {
+                "activity": "Mark success",
+                "dependencyConditions": [
+                  "Succeeded"
+                ]
+              }
+            ],
+            "typeProperties": {
+              "url": "https://contoso.webhook.office.com/webhookb2/etl",
+              "method": "POST",
+              "body": {
+                "value": "@json(concat('{\"text\":\"Nightly load ', variables('run_status'), '\"}'))",
+                "type": "Expression"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/tr_nightly_0200')]",
+      "type": "Microsoft.DataFactory/factories/triggers",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "ScheduleTrigger",
+        "runtimeState": "Started",
+        "pipelines": [
+          {
+            "pipelineReference": {
+              "referenceName": "pl_master_daily",
+              "type": "PipelineReference"
+            }
+          }
+        ],
+        "typeProperties": {
+          "recurrence": {
+            "frequency": "Day",
+            "interval": 1,
+            "startTime": "2026-01-01T02:00:00Z",
+            "timeZone": "UTC"
+          }
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/tr_crm_hourly_window')]",
+      "type": "Microsoft.DataFactory/factories/triggers",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "TumblingWindowTrigger",
+        "runtimeState": "Started",
+        "pipeline": {
+          "pipelineReference": {
+            "referenceName": "pl_rest_api_ingest",
+            "type": "PipelineReference"
+          },
+          "parameters": {
+            "windowStart": "@trigger().outputs.windowStartTime",
+            "windowEnd": "@trigger().outputs.windowEndTime"
+          }
+        },
+        "typeProperties": {
+          "frequency": "Hour",
+          "interval": 1,
+          "startTime": "2026-01-01T00:00:00Z",
+          "maxConcurrency": 2
+        }
+      },
+      "dependsOn": []
+    },
+    {
+      "name": "[concat(parameters('factoryName'), '/tr_finance_monthly')]",
+      "type": "Microsoft.DataFactory/factories/triggers",
+      "apiVersion": "2018-06-01",
+      "properties": {
+        "type": "ScheduleTrigger",
+        "runtimeState": "Started",
+        "pipelines": [
+          {
+            "pipelineReference": {
+              "referenceName": "pl_legacy_finance_ssis",
+              "type": "PipelineReference"
+            }
+          }
+        ],
+        "typeProperties": {
+          "recurrence": {
+            "frequency": "Month",
+            "interval": 1,
+            "startTime": "2026-01-01T04:00:00Z",
+            "schedule": {
+              "monthDays": [
+                1
+              ]
+            }
+          }
+        }
+      },
+      "dependsOn": []
+    }
+  ]
+}

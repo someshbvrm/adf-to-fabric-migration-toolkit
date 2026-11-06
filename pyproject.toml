@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adf2fabric"
+version = "0.1.0"
+description = "Assess and convert Azure Data Factory pipelines for Microsoft Fabric"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Someswara Rao K V" }]
+keywords = ["azure-data-factory", "microsoft-fabric", "migration", "data-engineering"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Database",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+adf2fabric = "adf2fabric.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/someshbvrm/adf-to-fabric-migration-toolkit"
+"Live report" = "https://someshbvrm.github.io/adf-to-fabric-migration-toolkit/"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
